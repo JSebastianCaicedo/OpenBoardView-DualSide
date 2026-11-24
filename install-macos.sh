@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 [ -x .venv/bin/python3 ] || { python3 -m venv .venv && .venv/bin/pip install -q jinja2; }
 ./build.sh -DPython_EXECUTABLE="$PWD/.venv/bin/python3" || true   # DMG packaging may fail; the .app is what matters
-APP="/Applications/OpenBoardView DualSide.app"
+APP="/Applications/OpenBoardView.app"
 rm -rf "$APP" && cp -R release_build/src/openboardview/openboardview.app "$APP"
 # Homebrew's SDL2 is sdl2-compat, which loads SDL3 at runtime: bundle it.
 if [ -f "$(brew --prefix)/lib/libSDL3.0.dylib" ]; then

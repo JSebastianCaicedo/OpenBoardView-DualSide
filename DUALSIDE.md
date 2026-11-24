@@ -16,7 +16,7 @@ Toggle it with **B**, the **Dual-Side** toolbar button, or **View → Dual-Side 
 ## Other changes
 
 - The macOS bundle declares the board file types (`.brd`, `.bdv`, `.bv`, `.bvr`, `.asc`, `.fz`, `.cad`, `.cae`, `.cst`, `.pcb`), so you can open a file by double-clicking it.
-- `install-macos.sh` builds the app and installs it to `/Applications/OpenBoardView DualSide.app`. It needs Homebrew `cmake`, `pkg-config` and `sdl2`. The script also bundles SDL3, which Homebrew's `sdl2-compat` loads at runtime.
+- `install-macos.sh` builds the app and installs it to `/Applications/OpenBoardView.app`. It needs Homebrew `cmake`, `pkg-config` and `sdl2`. The script also bundles SDL3, which Homebrew's `sdl2-compat` loads at runtime.
 
 ## License
 
