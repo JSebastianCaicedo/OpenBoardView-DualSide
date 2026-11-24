@@ -241,4 +241,18 @@ struct BoardView {
 	void SetLastFileOpenName(const std::string &name);
 	void FlipBoard(int mode = 0);
 	void HandlePDFBridgeSelection();
+
+	// Dual-side view: both sides in one plane. The bottom side is drawn
+	// mirrored about a horizontal axis just below the board, same scale.
+	bool m_dualSide    = false;
+	int m_dsPass       = -1;    // side being rendered (0 top, 1 bottom), -1 = none
+	float m_dsMinY     = 0.0f;
+	float m_dsMaxY     = 0.0f;
+	void ToggleDualSide(void);
+	int MouseSide(void);
+	int ViewSide(void);
+	float DualSideAxis(void);
+	ImVec2 DualSideCoordToScreen(float x, float y, int half);
+	void DrawBoardLayers(ImDrawList *draw);
+	void DrawDualSideLinks(ImDrawList *draw);
 };

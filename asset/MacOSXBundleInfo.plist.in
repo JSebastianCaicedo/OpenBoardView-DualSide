@@ -32,5 +32,29 @@
 	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Boardview file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>brd</string>
+				<string>bdv</string>
+				<string>bv</string>
+				<string>bvr</string>
+				<string>asc</string>
+				<string>fz</string>
+				<string>cad</string>
+				<string>cae</string>
+				<string>cst</string>
+				<string>pcb</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

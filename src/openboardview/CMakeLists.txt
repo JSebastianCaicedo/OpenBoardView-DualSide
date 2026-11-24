@@ -182,7 +182,7 @@ elseif(APPLE)
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_ICON_FILE ${PROJECT_NAME_LOWER})
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_NAME ${PROJECT_NAME_LOWER})
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_INFO_STRING "Boardview viewing")
-	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "org.openboardview.openboardview")
+	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "org.openboardview.dualside")
 endif()
 
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE

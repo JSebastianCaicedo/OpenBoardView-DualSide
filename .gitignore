@@ -67,3 +67,6 @@ share
 
 # VS Code
 .vscode
+release_build/
+.venv/
+*.log

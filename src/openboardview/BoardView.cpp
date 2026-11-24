@@ -9,6 +9,9 @@
 #include <climits>
 #include <memory>
 #include <cstdio>
+#include <cfloat>
+#include <unordered_map>
+#include <algorithm>
 #ifdef ENABLE_SDL2
 #include <SDL.h>
 #endif
@@ -419,7 +422,9 @@ void BoardView::ContextMenu(void) {
 	static std::string pin, partn, net;
 	double tx, ty;
 
+	if (m_dualSide) m_dsPass = m_current_side;
 	ImVec2 pos = ScreenToCoord(m_showContextMenuPos.x, m_showContextMenuPos.y);
+	m_dsPass   = -1;
 
 	/*
 	 * So we don't have dozens of near-same-spot annotation points, we truncate
@@ -971,6 +976,9 @@ void BoardView::Update() {
 			if (ImGui::MenuItem("Flip board", keybindings.getKeyNames("Flip").c_str())) {
 				FlipBoard();
 			}
+			if (ImGui::MenuItem("Dual-Side View", "B", m_dualSide)) {
+				ToggleDualSide();
+			}
 			if (ImGui::MenuItem("Rotate CW", keybindings.getKeyNames("RotateCW").c_str())) {
 				Rotate(1);
 			}
@@ -1113,6 +1121,11 @@ void BoardView::Update() {
 		ImGui::SameLine();
 		if (ImGui::Button(" ^ ")) {
 			FlipBoard();
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button(m_dualSide ? "[Dual-Side]" : "Dual-Side")) {
+			ToggleDualSide();
 		}
 
 		ImGui::SameLine();
@@ -1343,7 +1356,7 @@ void BoardView::Pan(int direction, int amount) {
 	switch (direction) {
 		case DIR_UP: amount = -amount;
 		case DIR_DOWN:
-			if ((m_current_side) && (m_rotation % 2)) amount = -amount;
+			if ((ViewSide()) && (m_rotation % 2)) amount = -amount;
 			switch (m_rotation) {
 				case 0: m_dy += amount; break;
 				case 1: m_dx -= amount; break;
@@ -1353,7 +1366,7 @@ void BoardView::Pan(int direction, int amount) {
 			break;
 		case DIR_LEFT: amount = -amount;
 		case DIR_RIGHT:
-			if ((m_current_side) && ((m_rotation % 2) == 0)) amount = -amount;
+			if ((ViewSide()) && ((m_rotation % 2) == 0)) amount = -amount;
 			switch (m_rotation) {
 				case 0: m_dx -= amount; break;
 				case 1: m_dy -= amount; break;
@@ -1414,6 +1427,7 @@ void BoardView::HandleInput() {
 						// Build context menu here, for annotations and inspection
 						//
 						ImVec2 spos = ImGui::GetMousePos();
+						if (m_dualSide) m_current_side = MouseSide();
 						if (AnnotationIsHovered()) m_annotation_clicked_id = m_annotation_last_hovered;
 
 						m_annotationedit_retain = false;
@@ -1430,7 +1444,10 @@ void BoardView::HandleInput() {
 					// Else, click to select pin
 				} else if (!m_lastFileOpenWasInvalid && m_file && m_board && ImGui::IsMouseReleased(0) && !m_draggingLastFrame) {
 					ImVec2 spos = ImGui::GetMousePos();
+					if (m_dualSide) m_current_side = MouseSide();
+					if (m_dualSide) m_dsPass = m_current_side;
 					ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
+					m_dsPass    = -1;
 
 					m_needsRedraw = true;
 
@@ -1627,6 +1644,9 @@ void BoardView::HandleInput() {
 		} else if (keybindings.isPressed("PartList")) {
 			// Show Part List
 			m_showPartList = m_showPartList ? false : true;
+
+		} else if (ImGui::IsKeyPressed(ImGuiKey_B, false) && !io.KeyCtrl && !io.KeySuper) {
+			ToggleDualSide();
 
 		} else if (keybindings.isPressed("Flip")) {
 			// Flip board:
@@ -2177,10 +2197,12 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 	if (m_pinSelected->type == Pin::kPinTypeNotConnected) return;
 	if (m_pinSelected->type == Pin::kPinTypeUnkown) return;
 	if (m_pinSelected->net->is_ground) return;
+	if (m_dualSide && !BoardElementIsVisible(m_pinSelected->component)) return;
 
 	for (auto &p : m_board->Pins()) {
 
 		if (p->net == m_pinSelected->net) {
+			if (m_dualSide && !BoardElementIsVisible(p->component)) continue; // cross-side shown by DrawDualSideLinks
 			uint32_t col = m_colors.pinNetWebColor;
 			if (!BoardElementIsVisible(p->component)) {
 				col = m_colors.pinNetWebOSColor;
@@ -2878,6 +2900,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 }
 
 void BoardView::DrawPartTooltips(ImDrawList *draw) {
+	if (m_dualSide && m_dsPass >= 0 && MouseSide() != m_dsPass) return;
 	ImVec2 spos = ImGui::GetMousePos();
 	ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
 
@@ -3161,23 +3184,31 @@ void BoardView::DrawBoard() {
 		return;
 	}
 
-	// Splitting channels, drawing onto those and merging back.
-	draw->ChannelsSplit(NUM_DRAW_CHANNELS);
+	if (!m_dualSide) {
+		DrawBoardLayers(draw);
+	} else {
+		int active = m_current_side;
+		for (int side = 0; side < 2; side++) {
+			m_dsPass       = side;
+			m_current_side = side;
+			DrawBoardLayers(draw);
+		}
+		m_current_side = active;
+		m_dsPass       = -1;
 
-	// We draw the Parts before the Pins so that we can ascertain the needed pin
-	// size for the parts based on the part/pad geometry and spacing. -Inflex
-	// OutlineGenerateFill();
-	//	DrawFill(draw);
-	OutlineGenFillDraw(draw, config.boardFillSpacing, 1);
-	DrawOutline(draw);
-	DrawParts(draw);
-	//	DrawSelectedPins(draw);
-	DrawPins(draw);
-	// DrawPinTooltips(draw);
-	DrawPartTooltips(draw);
-	DrawAnnotations(draw);
-
-	draw->ChannelsMerge();
+		// Fold axis and labels
+		float axis = DualSideAxis();
+		float x0 = m_mx - m_boardWidth * 0.55f, x1 = m_mx + m_boardWidth * 0.55f;
+		ImVec2 l0 = CoordToScreen(x0, axis), l1 = CoordToScreen(x1, axis);
+		draw->AddLine(l0, l1, IM_COL32(128, 128, 128, 255), 2.0f);
+		float gap = (m_dsMaxY - m_dsMinY) * 0.04f;
+		ImVec2 tl = CoordToScreen(x0, axis + gap);
+		ImVec2 bl = CoordToScreen(x0, axis - gap);
+		uint32_t on = IM_COL32(0, 200, 255, 255), off = IM_COL32(0, 200, 255, 140);
+		draw->AddText(ImVec2(tl.x, tl.y - 16), active == 0 ? on : off, active == 0 ? "TOP  (active)" : "TOP");
+		draw->AddText(ImVec2(bl.x, bl.y + 2), active == 1 ? on : off, active == 1 ? "BOTTOM mirrored  (active)" : "BOTTOM mirrored");
+		DrawDualSideLinks(draw);
+	}
 
 	// Copy the new draw list and cmd buffer:
 	memcpy(m_cachedDrawList, draw, sizeof(ImDrawList));
@@ -3185,6 +3216,104 @@ void BoardView::DrawBoard() {
 	m_cachedDrawCommands.resize(cmds_size);
 	memcpy(m_cachedDrawCommands.Data, draw->CmdBuffer.Data, cmds_size);
 	m_needsRedraw = false;
+}
+
+void BoardView::DrawBoardLayers(ImDrawList *draw) {
+	// Splitting channels, drawing onto those and merging back.
+	draw->ChannelsSplit(NUM_DRAW_CHANNELS);
+
+	// We draw the Parts before the Pins so that we can ascertain the needed pin
+	// size for the parts based on the part/pad geometry and spacing. -Inflex
+	OutlineGenFillDraw(draw, config.boardFillSpacing, 1);
+	DrawOutline(draw);
+	DrawParts(draw);
+	DrawPins(draw);
+	DrawPartTooltips(draw);
+	DrawAnnotations(draw);
+
+	draw->ChannelsMerge();
+}
+
+/*
+ * Dual-side cross-side hints: for the selected pin / selected parts, mark the
+ * pins on the opposite side that share a net (solid cyan line + ring), and
+ * parts on the opposite side sitting under the selected footprint (orange
+ * outline) as possible physical neighbours (decoupling, vias, etc.).
+ */
+void BoardView::DrawDualSideLinks(ImDrawList *draw) {
+	const uint32_t netCol     = IM_COL32(0, 229, 255, 220);
+	const uint32_t overlapCol = IM_COL32(255, 160, 0, 230);
+	const int maxLines        = 600;
+
+	std::vector<std::shared_ptr<Pin>> sources;
+	if (m_pinSelected) sources.push_back(m_pinSelected);
+	for (auto &part : m_partHighlighted) {
+		if (m_pinSelected && part == m_pinSelected->component) continue;
+		for (auto &p : part->pins) sources.push_back(p);
+	}
+	if (sources.empty()) return;
+
+	auto sideOf = [](const std::shared_ptr<Pin> &p) -> int {
+		int s = p->board_side;
+		if (s == kBoardSideBoth && p->component) s = p->component->board_side;
+		return s;
+	};
+
+	std::unordered_map<Net *, std::vector<std::shared_ptr<Pin>>> byNet;
+	for (auto &p : m_board->Pins()) {
+		if (p->net) byNet[p->net].push_back(p);
+	}
+
+	int lines = 0;
+	for (auto &s : sources) {
+		if (!s->net || s->net->is_ground) continue;
+		if (s->type == Pin::kPinTypeNotConnected || s->type == Pin::kPinTypeUnkown) continue;
+		int ss = sideOf(s);
+		if (ss == kBoardSideBoth) continue;
+		ImVec2 a = DualSideCoordToScreen(s->position.x, s->position.y, ss);
+		for (auto &t : byNet[s->net]) {
+			if (t == s) continue;
+			int ts = sideOf(t);
+			if (ts == ss || ts == kBoardSideBoth) continue;
+			ImVec2 b = DualSideCoordToScreen(t->position.x, t->position.y, ts);
+			float r  = std::max(t->diameter * m_scale, 6.0f);
+			draw->AddCircle(b, r, netCol, 24, 2.5f);
+			draw->AddCircle(a, std::max(s->diameter * m_scale, 6.0f), netCol, 24, 2.0f);
+			if (lines < maxLines) {
+				draw->AddLine(a, b, netCol, 1.5f);
+				lines++;
+			}
+			std::string label = t->component->name + "." + t->name + "  " + s->net->name;
+			draw->AddText(ImVec2(b.x + r + 3, b.y - 7), netCol, label.c_str());
+		}
+	}
+
+	// Parts on the opposite side under the selected footprint
+	for (auto &part : m_partHighlighted) {
+		int ps = part->board_side;
+		if (ps == kBoardSideBoth) continue;
+		float minx = FLT_MAX, miny = FLT_MAX, maxx = -FLT_MAX, maxy = -FLT_MAX;
+		for (auto &v : part->outline) {
+			minx = std::min(minx, v.x);
+			maxx = std::max(maxx, v.x);
+			miny = std::min(miny, v.y);
+			maxy = std::max(maxy, v.y);
+		}
+		float mx = (maxx - minx) * 0.1f + 10.0f;
+		float my = (maxy - miny) * 0.1f + 10.0f;
+		for (auto &other : m_board->Components()) {
+			if (other->board_side == ps || other->board_side == kBoardSideBoth) continue;
+			if (other->is_dummy()) continue;
+			ImVec2 c = other->centerpoint;
+			if (c.x < minx - mx || c.x > maxx + mx || c.y < miny - my || c.y > maxy + my) continue;
+			int os = other->board_side;
+			ImVec2 pts[4];
+			for (int i = 0; i < 4; i++) pts[i] = DualSideCoordToScreen(other->outline[i].x, other->outline[i].y, os);
+			draw->AddPolyline(pts, 4, overlapCol, ImDrawFlags_Closed, 2.5f);
+			ImVec2 cs = DualSideCoordToScreen(c.x, c.y, os);
+			draw->AddText(ImVec2(cs.x + 4, cs.y + 4), overlapCol, other->name.c_str());
+		}
+	}
 }
 /** end of drawing region **/
 
@@ -3209,12 +3338,17 @@ void BoardView::CenterView(void) {
 
 	float dx = 1.1f * (m_boardWidth);
 	float dy = 1.1f * (m_boardHeight);
+	float cy = m_my;
+	if (m_dualSide) {
+		dy = 1.1f * 2.0f * (m_dsMaxY - DualSideAxis());
+		cy = DualSideAxis();
+	}
 	float sx = dx > 0 ? view.x / dx : 1.0f;
 	float sy = dy > 0 ? view.y / dy : 1.0f;
 
 	//  m_rotation = 0;
 	m_scale_floor = m_scale = sx < sy ? sx : sy;
-	SetTarget(m_mx, m_my);
+	SetTarget(m_mx, cy);
 	m_needsRedraw = true;
 }
 
@@ -3297,6 +3431,8 @@ void BoardView::LoadBoard(BRDFileBase *file) {
 	m_scale_floor = m_scale = sx < sy ? sx : sy;
 	m_boardWidth            = max_x - min_x;
 	m_boardHeight           = max_y - min_y;
+	m_dsMinY                = min_y;
+	m_dsMaxY                = max_y;
 	SetTarget(m_mx, m_my);
 
 	m_pinHighlighted.reserve(m_board->Components().size());
@@ -3307,16 +3443,68 @@ void BoardView::LoadBoard(BRDFileBase *file) {
 	m_needsRedraw = true;
 }
 
+/*
+ * Dual-side view helpers.
+ * Both sides share the same (top-side, unmirrored) view transform. Bottom-side
+ * geometry is mirrored about DualSideAxis() in board space before projecting,
+ * so a point keeps its X column on both copies (like opening a book).
+ */
+int BoardView::ViewSide(void) {
+	return m_dualSide ? 0 : m_current_side;
+}
+
+// Fold axis: a horizontal line a small gap below the board. Bottom-side
+// elements are drawn mirrored about it: y' = 2*axis - y.
+float BoardView::DualSideAxis(void) {
+	return m_dsMinY - (m_dsMaxY - m_dsMinY) * 0.05f;
+}
+
+// Which copy the mouse is over (by logical board Y).
+int BoardView::MouseSide(void) {
+	ImVec2 mp  = ImGui::GetMousePos();
+	int saved  = m_dsPass;
+	m_dsPass   = -1;
+	ImVec2 c   = ScreenToCoord(mp.x, mp.y);
+	m_dsPass   = saved;
+	return (c.y < DualSideAxis()) ? 1 : 0;
+}
+
+ImVec2 BoardView::DualSideCoordToScreen(float x, float y, int half) {
+	int saved = m_dsPass;
+	m_dsPass  = half;
+	ImVec2 r  = CoordToScreen(x, y);
+	m_dsPass  = saved;
+	return r;
+}
+
+void BoardView::ToggleDualSide(void) {
+	if (!m_dualSide) {
+		if (m_current_side) FlipBoard(1); // normalise the transform to the top side
+		m_dualSide = true;
+	} else {
+		m_dualSide    = false;
+		m_current_side = 0;
+	}
+	CenterView();
+	m_needsRedraw = true;
+}
+
 ImVec2 BoardView::CoordToScreen(float x, float y, float w) {
-	float side = m_current_side ? -1.0f : 1.0f;
+	if (m_dualSide && m_dsPass == 1) {
+		if (w == 0.0f) y = -y;
+		else y = 2.0f * DualSideAxis() - y;
+	}
+	float side = (m_dualSide || !m_current_side) ? 1.0f : -1.0f;
 	float tx   = side * m_scale * (x + w * (m_dx - m_mx));
 	float ty   = -1.0f * m_scale * (y + w * (m_dy - m_my));
+	ImVec2 r;
 	switch (m_rotation) {
-		case 0: return ImVec2(tx, ty);
-		case 1: return ImVec2(-ty, tx);
-		case 2: return ImVec2(-tx, -ty);
-		default: return ImVec2(ty, -tx);
+		case 0: r = ImVec2(tx, ty); break;
+		case 1: r = ImVec2(-ty, tx); break;
+		case 2: r = ImVec2(-tx, -ty); break;
+		default: r = ImVec2(ty, -tx); break;
 	}
+	return r;
 }
 
 ImVec2 BoardView::ScreenToCoord(float x, float y, float w) {
@@ -3340,11 +3528,16 @@ ImVec2 BoardView::ScreenToCoord(float x, float y, float w) {
 			ty = x;
 			break;
 	}
-	float side     = m_current_side ? -1.0f : 1.0f;
+	float side     = (m_dualSide || !m_current_side) ? 1.0f : -1.0f;
 	float invscale = 1.0f / m_scale;
 
 	tx = tx * side * invscale + w * (m_mx - m_dx);
 	ty = ty * -1.0f * invscale + w * (m_my - m_dy);
+
+	if (m_dualSide && m_dsPass == 1) {
+		if (w == 0.0f) ty = -ty;
+		else ty = 2.0f * DualSideAxis() - ty;
+	}
 
 	return ImVec2(tx, ty);
 }
@@ -3355,7 +3548,7 @@ void BoardView::Rotate(int count) {
 		m_rotation = (m_rotation + 1) & 3;
 		float dx   = m_dx;
 		float dy   = m_dy;
-		if (m_current_side == 0) {
+		if (ViewSide() == 0) {
 			m_dx = -dy;
 			m_dy = dx;
 		} else {
@@ -3369,7 +3562,7 @@ void BoardView::Rotate(int count) {
 		m_rotation = (m_rotation - 1) & 3;
 		float dx   = m_dx;
 		float dy   = m_dy;
-		if (m_current_side == 1) {
+		if (ViewSide() == 1) {
 			m_dx = -dy;
 			m_dy = dx;
 		} else {
@@ -3540,6 +3733,11 @@ void BoardView::SetLastFileOpenName(const std::string &name) {
 }
 
 void BoardView::FlipBoard(int mode) {
+	if (m_dualSide) {
+		m_current_side ^= 1;
+		m_needsRedraw = true;
+		return;
+	}
 	ImVec2 mpos = ImGui::GetMousePos();
 	// ImVec2 view = ImGui::GetIO().DisplaySize;
 	ImVec2 view = m_board_surface;
